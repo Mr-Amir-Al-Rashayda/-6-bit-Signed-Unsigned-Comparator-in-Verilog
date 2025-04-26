@@ -1,0 +1,216 @@
+// Name : Amir Rasmi Al-Rashayda
+// ID : 1222596
+// sec : 3
+// for my id = 122259'6'
+
+module INV (input A,output Y);
+    assign #3 Y = ~A; // delay 3 ns
+endmodule
+
+module NAND2 (input A, B,output Y);
+    assign #5 Y = ~(A & B); // delay 5 ns
+endmodule
+
+module NOR2 (input A, B,output Y);
+    assign #5 Y = ~(A | B); // delay 5 ns
+endmodule
+
+module AND2 (input A, B,output Y);
+    assign #8 Y = A & B; // delay 8 ns
+endmodule
+
+module OR2 (input A, B,output Y);
+    assign #8 Y = A | B; // delay 8 ns
+endmodule
+
+module XNOR2 (input A, B,output Y);
+    assign #10 Y = ~(A ^ B); // delay 10 ns
+endmodule
+
+module XOR2 (input A, B,output Y);
+    assign #12 Y = A ^ B; // delay 12 ns
+endmodule
+
+// should note the code follows these formulas :
+// Equal = (A[5] XNOR B[5]) & (A[4] XNOR B[4]) & (A[3] XNOR B[3]) & (A[2] XNOR B[2]) & (A[1] XNOR B[1]) & (A[0] XNOR B[0]);
+
+// Greater formula (Greater):
+// unsignedIsGreater = (A[5] & ~B[5]) | (A[4] & ~B[4] & XNOR_Outputs[5]) | (A[3] & ~B[3] & XNOR_Outputs[5] & XNOR_Outputs[4]) |
+//                     (A[2] & ~B[2] & XNOR_Outputs[5] & XNOR_Outputs[4] & XNOR_Outputs[3]) | (A[1] & ~B[1] & XNOR_Outputs[5] & XNOR_Outputs[4] & XNOR_Outputs[3] & XNOR_Outputs[2]) |
+//                     (A[0] & ~B[0] & XNOR_Outputs[5] & XNOR_Outputs[4] & XNOR_Outputs[3] & XNOR_Outputs[2] & XNOR_Outputs[1]);
+// signedIsGreater = (signDIFF & a_is_positive) | (signSAME & unsignedIsGreater);
+// Greater = (unsignedIsGreater & ~S) | (signedIsGreater & S);
+
+
+// Smaller formula (Smaller):
+// Smaller = (Greater ^ 1'b1) & ~Equal;
+module comparator_6bit (
+    input wire clk,
+    input wire [5:0] A,
+    input wire [5:0] B,
+    input wire S, // Select for signed (1) or unsigned (0) Comparison
+    output wire Equal,
+    output wire Greater,
+    output wire Smaller
+);
+
+// internal registers holding inputs
+wire [5:0] A_AsReg, B_AsReg;
+wire S_AsReg;
+
+// input registers implemented structurally
+DFF dff_A_AsReg[5:0] (.clk(clk), .d(A), .q(A_AsReg)); // A_AsReg = A 
+DFF dff_B_AsReg[5:0] (.clk(clk), .d(B), .q(B_AsReg)); // B_AsReg = B 
+DFF dff_S_AsReg    (.clk(clk), .d(S), .q(S_AsReg));   // S_AsReg = S 
+
+// internal wires for comparison
+wire [5:0] XNOR_Outputs;
+wire EqualInIt;
+wire unsignedIsGreater;
+wire signedIsGreater;
+wire areNotEqual;
+
+// Equality comparison
+genvar i;
+generate
+    for (i = 0; i < 6; i = i + 1) begin : xnor_loop
+        XNOR2 Xnor1 (.A(A_AsReg[i]), .B(B_AsReg[i]), .Y(XNOR_Outputs[i])); // XNOR_Outputs[i] = ~ (A_AsReg[i] ^ B_AsReg[i])
+    end
+endgenerate
+
+// AND Chain for Equality
+wire AND_Chain1, AND_Chain2, AND_Chain3, AND_Chain4, AND_Chain5;
+AND2 And1 (.A(XNOR_Outputs[0]), .B(XNOR_Outputs[1]), .Y(AND_Chain1)); // AND_Chain1 = XNOR_Outputs[0] & XNOR_Outputs[1]
+AND2 And2 (.A(AND_Chain1), .B(XNOR_Outputs[2]), .Y(AND_Chain2));      // AND_Chain2 = AND_Chain1 & XNOR_Outputs[2]
+AND2 And3 (.A(AND_Chain2), .B(XNOR_Outputs[3]), .Y(AND_Chain3));      // AND_Chain3 = AND_Chain2 & XNOR_Outputs[3]
+AND2 And4 (.A(AND_Chain3), .B(XNOR_Outputs[4]), .Y(AND_Chain4));      // AND_Chain4 = AND_Chain3 & XNOR_Outputs[4]
+AND2 And5 (.A(AND_Chain4), .B(XNOR_Outputs[5]), .Y(EqualInIt));      // EqualInIt = AND_Chain4 & XNOR_Outputs[5]
+
+// unsigned greater-than logic
+wire [5:0] not_b;
+wire [5:0] a_gt_b;
+genvar j;
+generate
+    for (j = 0; j < 6; j = j + 1) begin : not_loop
+        INV u_Nnot (.A(B_AsReg[j]), .Y(not_b[j]));                  // not_b[j] = ~ B_AsReg[j]
+        AND2 u_and_gt (.A(A_AsReg[j]), .B(not_b[j]), .Y(a_gt_b[j])); // a_gt_b[j] = A_AsReg[j] & ~B_AsReg[j]
+    end
+endgenerate
+
+// tructural implementation of Unsigned GreaterThan
+// unsignedIsGreater = (A[5]&~B[5]) | (A[4]&~B[4]&XNOR_Outputs[5]) | (A[3]&~B[3]&XNOR_Outputs[5]&XNOR_Outputs[4]) | ...
+wire TermNum0, TermNum1, TermNum2, TermNum3, TermNum4, TermNum5;
+wire or_temp1, or_temp2, or_temp3, or_temp4, unsignedIsGreater_struct;
+
+// Term 0: A[5] & ~B[5]
+AND2 TermNum0_and (.A(A_AsReg[5]), .B(not_b[5]), .Y(TermNum0));
+
+// Term 1: A[4] & ~B[4] & XNOR_Outputs[5]
+wire TermNum1_a;
+AND2 TermNum1_and1 (.A(A_AsReg[4]), .B(not_b[4]), .Y(TermNum1_a));
+AND2 TermNum1_and2 (.A(TermNum1_a), .B(XNOR_Outputs[5]), .Y(TermNum1));
+
+// Term 2: A[3] & ~B[3] & XNOR_Outputs[5] & XNOR_Outputs[4]
+wire TermNum2_a, TermNum2_b;
+AND2 TermNum2And1 (.A(A_AsReg[3]), .B(not_b[3]), .Y(TermNum2_a));
+AND2 TermNum2And2 (.A(TermNum2_a), .B(XNOR_Outputs[5]), .Y(TermNum2_b));
+AND2 TermNum2And3 (.A(TermNum2_b), .B(XNOR_Outputs[4]), .Y(TermNum2));
+
+// Term 3: A[2] & ~B[2] & XNOR_Outputs[5] & XNOR_Outputs[4] & XNOR_Outputs[3]
+wire TermNum3_a, TermNum3_b, TermNum3_c;
+AND2 TermNum3And1 (.A(A_AsReg[2]), .B(not_b[2]), .Y(TermNum3_a));
+AND2 TermNum3And2 (.A(TermNum3_a), .B(XNOR_Outputs[5]), .Y(TermNum3_b));
+AND2 TermNum3And3 (.A(TermNum3_b), .B(XNOR_Outputs[4]), .Y(TermNum3_c));
+AND2 TermNum3And4 (.A(TermNum3_c), .B(XNOR_Outputs[3]), .Y(TermNum3));
+
+// Term 4: A[1] & ~B[1] & XNOR_Outputs[5] & XNOR_Outputs[4] & XNOR_Outputs[3] & XNOR_Outputs[2]
+wire TermNum4_a, TermNum4_b, TermNum4_c, TermNum4_d;
+AND2 TermNum4And1 (.A(A_AsReg[1]), .B(not_b[1]), .Y(TermNum4_a));
+AND2 TermNum4And2 (.A(TermNum4_a), .B(XNOR_Outputs[5]), .Y(TermNum4_b));
+AND2 TermNum4And3 (.A(TermNum4_b), .B(XNOR_Outputs[4]), .Y(TermNum4_c));
+AND2 TermNum4And4 (.A(TermNum4_c), .B(XNOR_Outputs[3]), .Y(TermNum4_d));
+AND2 TermNum4And5 (.A(TermNum4_d), .B(XNOR_Outputs[2]), .Y(TermNum4));
+
+// Term 5: A[0] & ~B[0] & XNOR_Outputs[5] & XNOR_Outputs[4] & XNOR_Outputs[3] & XNOR_Outputs[2] & XNOR_Outputs[1]
+wire TermNum5_a, TermNum5_b, TermNum5_c, TermNum5_d, TermNum5_e;
+AND2 TermNum5And1 (.A(A_AsReg[0]), .B(not_b[0]), .Y(TermNum5_a));
+AND2 TermNum5And2 (.A(TermNum5_a), .B(XNOR_Outputs[5]), .Y(TermNum5_b));
+AND2 TermNum5And3 (.A(TermNum5_b), .B(XNOR_Outputs[4]), .Y(TermNum5_c));
+AND2 TermNum5And4 (.A(TermNum5_c), .B(XNOR_Outputs[3]), .Y(TermNum5_d));
+AND2 TermNum5And5 (.A(TermNum5_d), .B(XNOR_Outputs[2]), .Y(TermNum5_e));
+AND2 TermNum5And6 (.A(TermNum5_e), .B(XNOR_Outputs[1]), .Y(TermNum5));
+
+// OR Chain for unsignedIsGreater
+OR2 OR0 (.A(TermNum0), .B(TermNum1), .Y(or_temp1)); 
+OR2 OR1 (.A(or_temp1), .B(TermNum2), .Y(or_temp2)); 
+OR2 OR2 (.A(or_temp2), .B(TermNum3), .Y(or_temp3)); 
+OR2 OR3 (.A(or_temp3), .B(TermNum4), .Y(or_temp4)); 
+OR2 OR4 (.A(or_temp4), .B(TermNum5), .Y(unsignedIsGreater_struct)); 
+
+// unsignedIsGreater structurally
+assign unsignedIsGreater = unsignedIsGreater_struct;
+
+// signed greater-than logic
+wire signDIFF;
+wire a_is_positive;
+wire greaterWithDIFF_sign;
+wire greaterWithSAME_sign;
+wire signSAME;
+
+// sign difference and related signals
+XOR2 u_xor1 (.A(A_AsReg[5]), .B(B_AsReg[5]), .Y(signDIFF)); // signDIFF = A_AsReg[5] ^ B_AsReg[5]
+INV  uNotSign (.A(A_AsReg[5]), .Y(a_is_positive));        // a_is_positive = ~A_AsReg[5]
+
+// greaterWithDIFF_sign = signDIFF & a_is_positive
+AND2 u_and_diff (.A(signDIFF), .B(a_is_positive), .Y(greaterWithDIFF_sign)); 
+
+// signSAME = ~(A_AsReg[5] ^ B_AsReg[5])
+XNOR2 uXNOR_Sign (.A(A_AsReg[5]), .B(B_AsReg[5]), .Y(signSAME)); 
+
+// greaterWithSAME_sign = signSAME & unsignedIsGreater
+AND2 uANDSameSign (.A(signSAME), .B(unsignedIsGreater), .Y(greaterWithSAME_sign)); 
+
+// signedIsGreater = greaterWithDIFF_sign | greaterWithSAME_sign
+OR2 uOR2 (.A(greaterWithDIFF_sign), .B(greaterWithSAME_sign), .Y(signedIsGreater)); 
+
+// not equal determination
+INV u_areNotEqual (.A(EqualInIt), .Y(areNotEqual)); // areNotEqual = ~EqualInIt
+
+// final outputs
+wire FinalGreater;
+wire FinalSmaller;
+wire NotS;
+wire g_unsigned, g_signed;
+
+// Invert S_AsReg to get NotS
+INV uNotS (.A(S_AsReg), .Y(NotS)); // NotS = ~S_AsReg
+
+// g_unsigned = unsignedIsGreater & NotS
+AND2 uAND_Unsigned (.A(unsignedIsGreater), .B(NotS), .Y(g_unsigned)); 
+
+// g_signed = signedIsGreater & S_AsReg
+AND2 uAND_Signed (.A(signedIsGreater), .B(S_AsReg), .Y(g_signed)); 
+
+// FinalGreater = g_unsigned | g_signed
+OR2 uOR_FinalGreater (.A(g_unsigned), .B(g_signed), .Y(FinalGreater)); 
+
+// smaller_temp = FinalGreater ^ 1'b1
+XOR2 uXOR_Smaller (.A(FinalGreater), .B(1'b1), .Y(smaller_temp)); 
+
+// FinalSmaller = smaller_temp & areNotEqual
+AND2 uAND_FinalSmaller (.A(smaller_temp), .B(areNotEqual), .Y(FinalSmaller)); 
+
+// output "registers" impl structurally
+DFF DFF_EQ (.clk(clk), .d(EqualInIt), .q(Equal));        // Equal = EqualInIt 
+DFF DFF_GR (.clk(clk), .d(FinalGreater), .q(Greater));   // Greater = FinalGreater 
+DFF DFF_SM (.clk(clk), .d(FinalSmaller), .q(Smaller));   // Smaller = FinalSmaller 
+
+endmodule
+
+module DFF (input wire clk, input wire d, output wire q);
+    reg q_reg;
+    always @(posedge clk) begin
+        q_reg = d;
+    end
+    assign q = q_reg; 
+endmodule

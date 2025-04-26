@@ -1,0 +1,169 @@
+// Name : Amir Rasmi Al-Rashayda
+// ID : 1222596
+// sec : 3
+// for my id = 122259'6'
+`timescale 1ns / 1ps
+
+module comparator_tb2();
+    reg clk;
+    reg [5:0] A, B;
+    reg S;
+    wire Equal, Greater, Smaller;
+
+    integer TestCounter;
+    integer ErrorCounter;
+    integer Passes_Pres;
+
+    reg ExpEqual, ExpGreater, ExpSmaller;
+    reg signed [5:0] signedA;
+    reg signed [5:0] signedB;
+    integer i, j;
+
+    comparator_6bit uut (.clk(clk),.A(A),.B(B),.S(S),.Equal(Equal),.Greater(Greater),.Smaller(Smaller));
+
+    // cock generation
+    initial begin
+        clk = 0;
+        forever #20 clk = ~clk;   
+    end
+
+    // main testSequence
+    initial begin
+
+        
+        // initi values
+        A = 0;
+        B = 0;
+        S = 0;
+        TestCounter = 0;
+        ErrorCounter = 0;
+
+        // initial delay
+        #20
+
+        // test Sequences 64*64*2 = 8192 all cases!!
+        for (i = 0; i < 64; i = i + 1) begin
+            for (j = 0; j < 64; j = j + 1) begin
+                test_unsigned(i[5:0], j[5:0]);
+                test_signed(i[5:0], j[5:0]);
+            end
+        end
+
+        // final Delay
+        #20
+
+        // the test Summary
+        $display("\n====== Test Summary ======");
+        $display("Total Tests Made: %d", TestCounter);
+        $display("Errors: %d", ErrorCounter);
+
+        Passes_Pres = ((TestCounter - ErrorCounter) * 10000) / TestCounter;
+        $display("Success Rate: %0d.%02d%%", Passes_Pres / 100, Passes_Pres % 100);
+        $display("==========================\n");
+        #10 $finish;
+    end
+
+
+ // unsigned Test Task
+    task test_unsigned;
+        input [5:0] a_in;
+        input [5:0] b_in;
+        begin
+            S = 0;
+            A = a_in;
+            B = b_in;
+
+            ExpEqual = (a_in == b_in);
+            ExpGreater = (a_in > b_in);
+            ExpSmaller = (a_in < b_in);
+
+            @(posedge clk);
+            repeat (5) @(posedge clk);
+            checkResu("Unsigned", a_in, b_in);
+        end
+    endtask
+
+    // signed Test Task
+    task test_signed;
+        input [5:0] a_in;
+        input [5:0] b_in;
+        begin
+            S = 1;
+            A = a_in;
+            B = b_in;
+
+            signedA = a_in;
+            signedB = b_in;
+
+            ExpEqual = (signedA == signedB);
+            ExpGreater = (signedA > signedB);
+            ExpSmaller = (signedA < signedB);
+
+            @(posedge clk);
+            repeat (5) @(posedge clk);
+            checkResu("Signed", a_in, b_in);
+        end
+    endtask
+
+    // mode Switching Test Task
+    task testModeSwit;
+        input [5:0] a_in;
+        input [5:0] b_in;
+        begin
+            S = 0; A = a_in; B = b_in; @(posedge clk);
+            S = 1; @(posedge clk); repeat (5) @(posedge clk);
+            S = 0; @(posedge clk); repeat (5) @(posedge clk);
+            S = 1; @(posedge clk); repeat (5) @(posedge clk);
+
+            TestCounter = TestCounter + 1;
+            signedA = a_in;
+            signedB = b_in;
+
+            ExpEqual = (signedA == signedB);
+            ExpGreater = (signedA > signedB);
+            ExpSmaller = (signedA < signedB);
+
+            if (Equal !== ExpEqual || Greater !== ExpGreater || Smaller !== ExpSmaller) begin
+                ErrorCounter = ErrorCounter + 1;
+                $display("Error in Mode Switching Test Case %0d:", TestCounter);
+                $display("A=%d (%d signed), B=%d (%d signed)", a_in, signedA, b_in, signedB);
+                $display("Expected: Equal=%b, Greater=%b, Smaller=%b", ExpEqual, ExpGreater, ExpSmaller);
+                $display("Got:      Equal=%b, Greater=%b, Smaller=%b\n", Equal, Greater, Smaller);
+            end else begin
+                $display("Mode Switching Test Case %0d Passed: A=%d (%d signed), B=%d (%d signed)", TestCounter, a_in, signedA, b_in, signedB);
+            end
+        end
+    endtask
+
+    // results Checking Task
+    task checkResu;
+        input string mode;
+        input [5:0] a_in;
+        input [5:0] b_in;
+        begin
+            TestCounter = TestCounter + 1;
+            if (Equal !== ExpEqual || Greater !== ExpGreater || Smaller !== ExpSmaller) begin
+                ErrorCounter = ErrorCounter + 1;
+                $display("Error in %s Test Case %0d:", mode, TestCounter);
+
+                if (mode == "Signed") begin
+                    $display("A=%d (%d signed), B=%d (%d signed)", a_in, signedA, b_in, signedB);
+                end else begin
+                    $display("A=%d, B=%d", a_in, b_in);
+                end
+
+                $display("Expected: Equal=%b, Greater=%b, Smaller=%b", ExpEqual, ExpGreater, ExpSmaller);
+                $display("Got:      Equal=%b, Greater=%b, Smaller=%b\n", Equal, Greater, Smaller);
+            end else begin
+                if (mode == "Signed") begin
+                    $display("%s Test Case %0d Passed: A=%d (%d signed), B=%d (%d signed)", mode, TestCounter, a_in, signedA, b_in, signedB);
+                end else begin
+                    $display("%s Test Case %0d Passed: A=%d, B=%d", mode, TestCounter, a_in, b_in);
+                end
+            end
+        end
+    endtask
+
+    
+
+endmodule
